@@ -56,7 +56,13 @@ class Mutex {
 
   friend class CondVar;
 
-  static const int SIZEOF_CRITICAL_SECTION = 24;
+  static const int SIZEOF_CRITICAL_SECTION =
+#ifndef _WIN64
+	  24;
+#else
+	  40;
+#endif
+
   char cs_[SIZEOF_CRITICAL_SECTION];
 
 #ifndef NDEBUG

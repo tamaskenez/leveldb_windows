@@ -5,7 +5,9 @@
 #include "leveldb/c.h"
 
 #include <stdlib.h>
+#ifndef _MSC_VER
 #include <unistd.h>
+#endif
 #include "leveldb/cache.h"
 #include "leveldb/comparator.h"
 #include "leveldb/db.h"
@@ -120,7 +122,7 @@ struct leveldb_filterpolicy_t : public FilterPolicy {
 
   virtual bool KeyMayMatch(const Slice& key, const Slice& filter) const {
     return (*key_match_)(state_, key.data(), key.size(),
-                         filter.data(), filter.size());
+                         filter.data(), filter.size()) != 0;
   }
 };
 
@@ -405,17 +407,17 @@ void leveldb_options_set_filter_policy(
 
 void leveldb_options_set_create_if_missing(
     leveldb_options_t* opt, unsigned char v) {
-  opt->rep.create_if_missing = v;
+  opt->rep.create_if_missing = v != 0;
 }
 
 void leveldb_options_set_error_if_exists(
     leveldb_options_t* opt, unsigned char v) {
-  opt->rep.error_if_exists = v;
+  opt->rep.error_if_exists = v != 0;
 }
 
 void leveldb_options_set_paranoid_checks(
     leveldb_options_t* opt, unsigned char v) {
-  opt->rep.paranoid_checks = v;
+  opt->rep.paranoid_checks = v != 0;
 }
 
 void leveldb_options_set_env(leveldb_options_t* opt, leveldb_env_t* env) {
@@ -530,12 +532,12 @@ void leveldb_readoptions_destroy(leveldb_readoptions_t* opt) {
 void leveldb_readoptions_set_verify_checksums(
     leveldb_readoptions_t* opt,
     unsigned char v) {
-  opt->rep.verify_checksums = v;
+  opt->rep.verify_checksums = v != 0;
 }
 
 void leveldb_readoptions_set_fill_cache(
     leveldb_readoptions_t* opt, unsigned char v) {
-  opt->rep.fill_cache = v;
+  opt->rep.fill_cache = v != 0;
 }
 
 void leveldb_readoptions_set_snapshot(
@@ -554,7 +556,7 @@ void leveldb_writeoptions_destroy(leveldb_writeoptions_t* opt) {
 
 void leveldb_writeoptions_set_sync(
     leveldb_writeoptions_t* opt, unsigned char v) {
-  opt->rep.sync = v;
+  opt->rep.sync = v != 0;
 }
 
 leveldb_cache_t* leveldb_cache_create_lru(size_t capacity) {

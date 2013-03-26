@@ -40,7 +40,13 @@ elseif(MSVC)
 	set(PLATFORM OS_WIN)
 	add_definitions(-DOS_WIN -DLEVELDB_PLATFORM_WINDOWS -D_CRT_SECURE_NO_WARNINGS)
 	set(PORT_FILE port/port_win.cc)
-	set(ENV_FILE util/env_win.cc)
+	set(ENV_FILE
+		util/env_win.cc
+		util/env_win_detail/win_misc.cc
+		util/env_win_detail/win_mmap.cc
+		util/env_win_detail/win_thread.cc
+		util/env_win_detail/win_time.cc
+		)
 else()
 	message(FATAL_ERROR Unknown platform)
 endif()
@@ -62,5 +68,5 @@ include_directories(. include)
 set(SOURCES ${PORTABLE_FILES} ${PORT_FILE})
 set(MEMENV_SOURCES helpers/memenv/memenv.cc)
 
-add_library(leveldb ${SOURCES} ${MEMENV_SOURCES})
+add_library(leveldb ${SOURCES})
 

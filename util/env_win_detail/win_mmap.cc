@@ -28,7 +28,8 @@ bool MMap::
 	return address_ != NULL;
 }
 
-bool msync(void *addr, size_t length)
+bool MMap::
+	msync(void *addr, size_t length)
 {
 	return CHECK_WINAPI_RESULT(FlushViewOfFile(addr, length) != 0, "FlushViewOfFile");
 }
@@ -37,11 +38,12 @@ bool MMap::
 	munmap()
 {
 	if ( handle_ == NULL)
-		return 0;
+		return true;
 
 	bool b1 = CHECK_WINAPI_RESULT(UnmapViewOfFile(address_) != 0, "UnmapViewOfFile");
 	address_ = 0;
-	bool b2 = CHECK_WINAPI_RESULT(CloseHandle(handle_) != 0 && b1, "CloseHandle");
+	bool b2 = CHECK_WINAPI_RESULT(!handle_ || CloseHandle(handle_) != 0 && b1, "CloseHandle");
+	handle_ = NULL;
 
 	return b2;
 }
@@ -52,4 +54,6 @@ void MMap::
 	munmap();
 	address_ = y.address_;
 	handle_ = y.handle_;
+	y.address_ = 0;
+	y.handle_ = 0;
 }

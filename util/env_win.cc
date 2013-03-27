@@ -79,7 +79,7 @@ class WinRandomAccessFile: public RandomAccessFile {
  public:
   WinRandomAccessFile(const std::string& fname, HANDLE fd)
       : filename_(fname), fd_(fd) { }
-  virtual ~WinRandomAccessFile() { CHECK_WINAPI_RESULT(CloseHandle(fd_) !=0, "CloseHandle"); }
+  virtual ~WinRandomAccessFile() { CHECK_WINAPI_RESULT(!fd_ || CloseHandle(fd_) !=0, "CloseHandle"); }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const {
@@ -306,7 +306,7 @@ class WinMmapFile : public WritableFile {
       }
     }
 
-    if (!CHECK_WINAPI_RESULT(CloseHandle(fd_) != 0, "close")) {
+    if (!CHECK_WINAPI_RESULT(!fd_ || CloseHandle(fd_) != 0, "close")) {
       if (s.ok()) {
         s = IOErrorWinApi(filename_);
       }
@@ -327,7 +327,7 @@ class WinMmapFile : public WritableFile {
     if (pending_sync_) {
       // Some unmapped data was not synced
       pending_sync_ = false;
-      if (CHECK_WINAPI_RESULT(FlushFileBuffers(fd_) != 0, "FlushFileBuffers")) {
+      if (!CHECK_WINAPI_RESULT(FlushFileBuffers(fd_) != 0, "FlushFileBuffers")) {
         s = IOErrorWinApi(filename_);
       }
     }
@@ -338,7 +338,7 @@ class WinMmapFile : public WritableFile {
 	  size_t p1 = TruncateToPageBoundary(last_sync_ - (char*)base_.address());
       size_t p2 = TruncateToPageBoundary(dst_ - (char*)base_.address() - 1);
       last_sync_ = dst_;
-	  if (CHECK_WINAPI_RESULT(base_.msync((char*)base_.address() + p1, p2 - p1 + page_size_) != 0, "msync")) {
+	  if (!CHECK_WINAPI_RESULT(base_.msync((char*)base_.address() + p1, p2 - p1 + page_size_) != 0, "msync")) {
         s = IOErrorWinApi(filename_);
       }
     }
@@ -388,7 +388,7 @@ class WinEnv : public Env {
 
   virtual Status NewSequentialFile(const std::string& fname,
                                    SequentialFile** result) {
-    FILE* f = fopen(fname.c_str(), "r");
+    FILE* f = fopen(fname.c_str(), "rb");
     if (f == NULL) {
       *result = NULL;
       return IOError(fname, errno);
@@ -419,7 +419,7 @@ class WinEnv : public Env {
           s = IOError(fname, errno);
         }
       }
-      CHECK_WINAPI_RESULT(CloseHandle(fd) != 0, "CloseHandle");
+      CHECK_WINAPI_RESULT(!fd || CloseHandle(fd) != 0, "CloseHandle");
       if (!s.ok()) {
         mmap_limit_.Release();
       }
@@ -452,9 +452,13 @@ class WinEnv : public Env {
                              std::vector<std::string>* result) {
     result->clear();
     struct _finddata_t entry;
-	intptr_t d = _findfirst(dir.c_str(), &entry);
+	std::string dir2(dir);
+	if ( !dir.empty() && dir[dir.size()-1] != '/' && dir[dir.size()-1] != '\\' )
+		dir2 += "/";
+	dir2 += "*";
+	intptr_t d = _findfirst(dir2.c_str(), &entry);
     if (d == -1 ) {
-      return IOError(dir, errno);
+      return errno == ENOENT ? Status::OK() : IOError(dir, errno);
     }
 	do {
 		result->push_back(entry.name);
@@ -503,6 +507,7 @@ class WinEnv : public Env {
 
   virtual Status RenameFile(const std::string& src, const std::string& target) {
     Status result;
+	remove(target.c_str());
     if (rename(src.c_str(), target.c_str()) != 0) {
       result = IOError(src, errno);
     }
@@ -552,8 +557,12 @@ class WinEnv : public Env {
     if (env && env[0] != '\0') {
       *result = env;
     } else {
+      const int unbufsize(100);
+      char username[unbufsize];
+      DWORD dw(unbufsize);
+      GetUserName(username, &dw);
       char buf[100];
-      snprintf(buf, sizeof(buf), "/tmp/leveldbtest-%d", int(time(0)));
+      snprintf(buf, sizeof(buf), "/tmp/leveldbtest-%s", username);
       *result = buf;
     }
     // Directory may already exist

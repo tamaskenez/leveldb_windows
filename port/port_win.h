@@ -119,7 +119,7 @@ class AtomicPointer {
   volatile pvoid_t rep_;
  public:
   // Initialize to arbitrary value
-  AtomicPointer();
+  AtomicPointer() {}
 
   // Initialize to hold v
   explicit AtomicPointer(void* v) : rep_(v) { }
@@ -161,7 +161,7 @@ inline bool Snappy_Compress(const char* input, size_t input_length,
 // If input[0,input_length-1] looks like a valid snappy compressed
 // buffer, store the size of the uncompressed data in *result and
 // return true.  Else return false.
-extern bool Snappy_GetUncompressedLength(const char* input, size_t length,
+inline bool Snappy_GetUncompressedLength(const char* input, size_t length,
                                          size_t* result)
 {
 	return false;
@@ -174,7 +174,7 @@ extern bool Snappy_GetUncompressedLength(const char* input, size_t length,
 // REQUIRES: at least the first "n" bytes of output[] must be writable
 // where "n" is the result of a successful call to
 // Snappy_GetUncompressedLength.
-extern bool Snappy_Uncompress(const char* input_data, size_t input_length,
+inline bool Snappy_Uncompress(const char* input_data, size_t input_length,
                               char* output)
 {
 	return false;

@@ -3,7 +3,7 @@
 
 #include "common.h"
 
-int gettimeofday(struct timeval *__p, void *__tz);
+int gettimeofday(struct timeval *__p, struct timezone  *__tz);
 struct tm *localtime_r(const time_t *timep, struct tm *result);
 
 #endif

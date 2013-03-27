@@ -21,7 +21,7 @@ public:
 	void moveFrom(MMap& y);
 
 	void* address() const { return address_; }
-	bool valid() { return !address_; }
+	bool valid() { return address_ != NULL; }
 
 private:
 	MMap(const MMap&);

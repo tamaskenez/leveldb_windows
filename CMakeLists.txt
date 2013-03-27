@@ -70,3 +70,46 @@ set(MEMENV_SOURCES helpers/memenv/memenv.cc)
 
 add_library(leveldb ${SOURCES})
 
+add_library(testutil_lib util/testutil.cc)
+
+add_library(testharness_lib util/testharness.cc)
+target_link_libraries(testharness_lib testutil_lib)
+
+set(TESTS
+	util/arena_test 
+	util/bloom_test 
+	util/cache_test 
+	util/coding_test 
+	db/corruption_test 
+	util/crc32c_test 
+	db/db_test 
+	db/dbformat_test 
+	util/env_test 
+	db/filename_test 
+	table/filter_block_test 
+	db/log_test 
+	helpers/memenv/memenv_test 
+	db/skiplist_test 
+	table/table_test 
+	db/version_edit_test 
+	db/version_set_test 
+	db/write_batch_test
+)
+
+if(NOT MSVC)
+	list(APPEND TESTS db/c_test)
+endif()
+
+foreach(t ${TESTS})
+	get_filename_component(n ${t} NAME)
+	if (n STREQUAL memenv_test)
+		add_executable(${n}
+			${t}
+			helpers/memenv/memenv.cc)
+		target_link_libraries(${n} testharness_lib leveldb)
+	else()
+		add_executable(${n}
+			${t})
+		target_link_libraries(${n} testharness_lib leveldb)
+	endif()
+endforeach()

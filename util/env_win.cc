@@ -27,8 +27,13 @@
 
 
 namespace leveldb {
+	bool ENV_WIN_ENABLE_MEMORY_MAPPED_FILES = true;
 
 namespace {
+
+//FILE_SHARED read for both would be sufficient. Corruption tests fail if write/delete sharing is not enabled
+const DWORD READ_ONLY_FILE_SHARING_ATTRS = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+const DWORD WRITABLE_FILE_SHARING_ATTRS = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
 
 static Status IOError(const std::string& context, int err_number) {
   return Status::IOError(context, strerror(err_number));
@@ -84,10 +89,12 @@ class WinRandomAccessFile: public RandomAccessFile {
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const {
     Status s;
-	bool bOk = fd_.setFilePointerEx(offset, NULL, FILE_BEGIN);
-	DWORD bytesRead;
-	if ( bOk )
-		bOk = fd_.readFile(scratch, n, &bytesRead, NULL);
+	DWORD bytesRead(0);
+	OVERLAPPED ol;
+	memset(&ol, 0, sizeof(ol));
+	ol.Offset = offset & 0xffffffff;
+	ol.OffsetHigh = offset >> 32;
+	bool bOk = fd_.readFile(scratch, n, &bytesRead, &ol); //it's not asynchonous since the handle was not opened with FILE_FLAG_OVERLAPPED
     *result = Slice(scratch, !bOk ? 0 : bytesRead);
     if (!bOk) {
       // An error: return a non-ok status
@@ -342,6 +349,48 @@ class WinMmapFile : public WritableFile {
   }
 };
 
+//Another implementation, without memory mapping
+class WinWritableFile : public WritableFile {
+ private:
+  std::string filename_;
+  winapi::File fd_;
+
+ public:
+  WinWritableFile(const std::string& fname, winapi::File& fd) //moves out fd
+      : filename_(fname) {
+	fd_.moveFrom(fd);
+  }
+
+  virtual Status Append(const Slice& data) {
+    DWORD written(0);
+	//this writeFile expects that the file was opened only with FILE_APPEND_DATA flag, (without GENERIC_WRITE)
+	//so it always writes at end of file
+	if ( !fd_.writeFile(data.data(), data.size(), &written, NULL) || written != data.size()) {
+        return IOErrorWinApi(filename_);
+    }
+    return Status::OK();
+  }
+
+  virtual Status Close() {
+    Status s;
+	if ( !fd_.closeHandle() ) {
+      return IOErrorWinApi(filename_);
+	} else
+	  return Status::OK();
+  }
+
+  virtual Status Flush() {
+    return Status::OK();
+  }
+
+  virtual Status Sync() {
+    if ( !fd_.flushFileBuffers() ) {
+	  return IOErrorWinApi(filename_);
+	} else
+	  return Status::OK();
+  }
+};
+
 static int LockOrUnlock1024(int fd, bool lock) {
   int r = _lseek(fd, 0, SEEK_SET);
   if ( r != 0 )
@@ -398,10 +447,10 @@ class WinEnv : public Env {
     *result = NULL;
     Status s;
     winapi::File fd;
-	if (!fd.createFile(fname.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+	if (!fd.createFile(fname.c_str(), GENERIC_READ, READ_ONLY_FILE_SHARING_ATTRS, NULL, OPEN_EXISTING,
 		FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL)) {
       s = IOErrorWinApi(fname);
-    } else if (mmap_limit_.Acquire()) {
+    } else if (ENV_WIN_ENABLE_MEMORY_MAPPED_FILES && mmap_limit_.Acquire()) {
       uint64_t size;
       s = GetFileSize(fname, &size);
       if (s.ok()) {
@@ -426,11 +475,16 @@ class WinEnv : public Env {
     Status s;
     winapi::File fd;
     if (!fd.createFile(fname.c_str(),
-		GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL)) {
+		ENV_WIN_ENABLE_MEMORY_MAPPED_FILES
+		? (GENERIC_WRITE | GENERIC_READ)
+		: FILE_APPEND_DATA,
+		WRITABLE_FILE_SHARING_ATTRS, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL)) {
       *result = NULL;
       s = IOErrorWinApi(fname);
     } else {
-      *result = new WinMmapFile(fname, fd, page_size_);
+      *result = ENV_WIN_ENABLE_MEMORY_MAPPED_FILES
+		  ? dynamic_cast<WritableFile*>(new WinMmapFile(fname, fd, page_size_))
+		  : dynamic_cast<WritableFile*>(new WinWritableFile(fname, fd));
     }
     return s;
   }
@@ -463,13 +517,8 @@ class WinEnv : public Env {
 
   virtual Status DeleteFile(const std::string& fname) {
     Status result;
-#if 0
-    if (unlink(fname.c_str()) != 0) {
-      result = IOError(fname, errno);
-#else
     if (!winapi::DeleteFile(fname.c_str())) {
 	  result = IOErrorWinApi(fname);
-#endif
     }
     return result;
   };

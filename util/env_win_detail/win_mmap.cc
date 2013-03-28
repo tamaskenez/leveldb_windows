@@ -2,58 +2,95 @@
 #include "win_misc.h"
 
 MMap::
+	MMap()
+{}
+
+MMap::
+	MMap(winapi::File& f) //moves 'f' out
+{
+	f_.moveFrom(f);
+}
+
+MMap::
 	~MMap()
 {
-	munmap();
+	close();
+}
+
+void MMap::
+	init(winapi::File& f)
+{
+	assert(!validFile());
+	assert(f.valid());
+	close();
+	f_.moveFrom(f);
 }
 
 bool MMap::
-	mmap(size_t length, bool bAllowWrite, HANDLE fd, int64_t offset)
+	close()
 {
-	handle_ = CHECK_WINAPI_RESULT(
-		CreateFileMapping(fd, NULL, bAllowWrite ? PAGE_READWRITE : PAGE_READONLY, 0, 0, NULL), "CreateFileMapping");
+	bool b = v_.unmapViewOfFile();
+	b = fm_.closeHandle() && b;
+	b = f_.closeHandle() && b;
+	return b;
+}
 
-	if ( handle_ != NULL )
-	{
-		address_ = CHECK_WINAPI_RESULT(MapViewOfFile(handle_, bAllowWrite ? FILE_MAP_WRITE : FILE_MAP_READ,
-			DWORD((uint64_t)offset >> 32), DWORD(offset & 0xffffffff), length), "MapViewOfFile");
+bool MMap::
+	mmap(size_t length, bool bAllowWrite, int64_t offset)
+{
+	v_.unmapViewOfFile();
 
-		if ( address_ == NULL )
-		{
-			CloseHandle(handle_);
-			handle_ = NULL;
-		}
-	}
+	if ( !fm_.valid() )
+		fm_.createFileMapping(f_, NULL, bAllowWrite ? PAGE_READWRITE : PAGE_READONLY, 0, 0, NULL);
 
-	return address_ != NULL;
+	if ( fm_.valid() )
+		v_.mapViewOfFile(fm_, bAllowWrite ? FILE_MAP_WRITE : FILE_MAP_READ, offset, length);
+
+	return validView();
 }
 
 bool MMap::
 	msync(void *addr, size_t length)
 {
-	return CHECK_WINAPI_RESULT(FlushViewOfFile(addr, length) != 0, "FlushViewOfFile");
+	return v_.flushViewOfFile(addr, length);
 }
 
 bool MMap::
 	munmap()
 {
-	if ( handle_ == NULL)
-		return true;
+	bool b1 = v_.unmapViewOfFile();
+	bool b2 = fm_.closeHandle();
 
-	bool b1 = CHECK_WINAPI_RESULT(UnmapViewOfFile(address_) != 0, "UnmapViewOfFile");
-	address_ = 0;
-	bool b2 = CHECK_WINAPI_RESULT(!handle_ || CloseHandle(handle_) != 0 && b1, "CloseHandle");
-	handle_ = NULL;
-
-	return b2;
+	return b1 && b2;
 }
 
 void MMap::
 	moveFrom(MMap& y)
 {
-	munmap();
-	address_ = y.address_;
-	handle_ = y.handle_;
-	y.address_ = 0;
-	y.handle_ = 0;
+	close();
+	v_.moveFrom(y.v_);
+	fm_.moveFrom(y.fm_);
+	f_.moveFrom(y.f_);
 }
+
+
+void MMap::
+	releaseFileHandle(winapi::File& y)
+{
+	v_.unmapViewOfFile();
+	fm_.closeHandle();
+	y.moveFrom(f_);
+}
+
+bool MMap::
+	ftruncate(int64_t size) const
+{
+	return ::ftruncate(f_, size);
+}
+
+bool MMap::
+	flushFileBuffers() const
+{
+	return f_.flushFileBuffers();
+}
+

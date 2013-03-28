@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include "common.h"
+#include "winapi.h"
 
 typedef uint32_t winthread_t;
 

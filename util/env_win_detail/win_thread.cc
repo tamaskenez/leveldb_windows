@@ -26,7 +26,7 @@ bool winthread_create(winthread_t *thread, void *(*start_routine) (void *), void
 
 	static_assert(sizeof(*thread) == sizeof(DWORD), "Set winthread_t to DWORD");
 
-	HANDLE handle = CHECK_WINAPI_RESULT(CreateThread(
+	HANDLE handle = winapi::CHECK_RESULT_NULL(CreateThread(
 		NULL,
 		0,
 		WinThreadProc,

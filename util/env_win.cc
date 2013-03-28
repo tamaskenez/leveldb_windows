@@ -34,7 +34,7 @@ static Status IOError(const std::string& context, int err_number) {
   return Status::IOError(context, strerror(err_number));
 }
 static Status IOErrorWinApi(const std::string& context) {
-  return Status::IOError(context, GetLastWinApiErrorStr().c_str());
+  return Status::IOError(context, winapi::GetLastErrorStr().c_str());
 }
 
 class WinSequentialFile: public SequentialFile {
@@ -74,23 +74,20 @@ class WinSequentialFile: public SequentialFile {
 class WinRandomAccessFile: public RandomAccessFile {
  private:
   std::string filename_;
-  HANDLE fd_;
+  winapi::File fd_;
 
  public:
-  WinRandomAccessFile(const std::string& fname, HANDLE fd)
-      : filename_(fname), fd_(fd) { }
-  virtual ~WinRandomAccessFile() { CHECK_WINAPI_RESULT(!fd_ || CloseHandle(fd_) !=0, "CloseHandle"); }
+  WinRandomAccessFile(const std::string& fname, winapi::File& fd) //moves out fd
+	  : filename_(fname) { fd_.moveFrom(fd); }
+  virtual ~WinRandomAccessFile() { }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const {
     Status s;
-	//fd_ is private so other methods will access this file
-	LARGE_INTEGER li;
-	li.QuadPart = offset;
-	bool bOk = CHECK_WINAPI_RESULT(SetFilePointerEx(fd_, li, NULL, FILE_BEGIN) != 0, "SetFilePointerEx");
+	bool bOk = fd_.setFilePointerEx(offset, NULL, FILE_BEGIN);
 	DWORD bytesRead;
 	if ( bOk )
-		bOk = CHECK_WINAPI_RESULT(ReadFile(fd_, scratch, n, &bytesRead, NULL) != 0, "ReadFile");
+		bOk = fd_.readFile(scratch, n, &bytesRead, NULL);
     *result = Slice(scratch, !bOk ? 0 : bytesRead);
     if (!bOk) {
       // An error: return a non-ok status
@@ -190,7 +187,6 @@ class WinMmapReadableFile: public RandomAccessFile {
 class WinMmapFile : public WritableFile {
  private:
   std::string filename_;
-  HANDLE fd_;
   size_t page_size_;
   size_t map_size_;       // How much extra memory to map at a time
   MMap base_;            // The mapped region
@@ -215,13 +211,13 @@ class WinMmapFile : public WritableFile {
 
   bool UnmapCurrentRegion() {
     bool result = true;
-	if (base_.valid()) {
+	if (base_.validView()) {
       if (last_sync_ < limit_) {
         // Defer syncing this data until next Sync() call, if any
         pending_sync_ = true;
       }
 	  file_offset_ += limit_ - (char*)base_.address();
-      if (!CHECK_WINAPI_RESULT(base_.munmap(), "munmap")) {
+      if (!base_.munmap()) {
         result = false;
       }
       limit_ = NULL;
@@ -237,11 +233,12 @@ class WinMmapFile : public WritableFile {
   }
 
   bool MapNewRegion() {
-    assert(!base_.valid());
-    if ( !CHECK_WINAPI_RESULT(ftruncate(fd_, file_offset_ + map_size_), "ftruncate")) {
+    assert(!base_.validView());
+	
+    if ( !base_.ftruncate(file_offset_ + map_size_)) {
       return false;
     }
-	if (!CHECK_WINAPI_RESULT(base_.mmap(map_size_, true, fd_, file_offset_), "mmap")) {
+	if (!base_.mmap(map_size_, true, file_offset_)) {
       return false;
     }
 	limit_ = (char*)base_.address() + map_size_;
@@ -251,31 +248,28 @@ class WinMmapFile : public WritableFile {
   }
 
  public:
-  WinMmapFile(const std::string& fname, HANDLE fd, size_t page_size)
+  WinMmapFile(const std::string& fname, winapi::File& fd, size_t page_size) //moves out fd
       : filename_(fname),
-        fd_(fd),
         page_size_(page_size),
         map_size_(Roundup(65536, page_size)),
         limit_(NULL),
         dst_(NULL),
         last_sync_(NULL),
         file_offset_(0),
-        pending_sync_(false) {
+        pending_sync_(false),
+		base_(fd) {
     assert((page_size & (page_size - 1)) == 0);
   }
 
 
   ~WinMmapFile() {
-    if (fd_ >= 0) {
-      WinMmapFile::Close();
-    }
   }
 
   virtual Status Append(const Slice& data) {
     const char* src = data.data();
     size_t left = data.size();
     while (left > 0) {
-	  assert(base_.address() <= dst_);
+	  assert((!base_.validView() && dst_ == NULL) || base_.address() <= dst_);
       assert(dst_ <= limit_);
       size_t avail = limit_ - dst_;
       if (avail == 0) {
@@ -296,23 +290,24 @@ class WinMmapFile : public WritableFile {
 
   virtual Status Close() {
     Status s;
+	winapi::File fd;
     size_t unused = limit_ - dst_;
     if (!UnmapCurrentRegion()) {
       s = IOErrorWinApi(filename_);
     } else if (unused > 0) {
       // Trim the extra space at the end of the file
-      if (!CHECK_WINAPI_RESULT(ftruncate(fd_, file_offset_ - unused), "ftruncate")) {
+		base_.releaseFileHandle(fd);
+      if (!ftruncate(fd, file_offset_ - unused)) {
         s = IOErrorWinApi(filename_);
       }
     }
 
-    if (!CHECK_WINAPI_RESULT(!fd_ || CloseHandle(fd_) != 0, "close")) {
+	if (!fd.closeHandle()) {
       if (s.ok()) {
         s = IOErrorWinApi(filename_);
       }
     }
 
-    fd_ = NULL;
     limit_ = NULL;
     return s;
   }
@@ -327,7 +322,7 @@ class WinMmapFile : public WritableFile {
     if (pending_sync_) {
       // Some unmapped data was not synced
       pending_sync_ = false;
-      if (!CHECK_WINAPI_RESULT(FlushFileBuffers(fd_) != 0, "FlushFileBuffers")) {
+      if (!base_.flushFileBuffers()) {
         s = IOErrorWinApi(filename_);
       }
     }
@@ -338,7 +333,7 @@ class WinMmapFile : public WritableFile {
 	  size_t p1 = TruncateToPageBoundary(last_sync_ - (char*)base_.address());
       size_t p2 = TruncateToPageBoundary(dst_ - (char*)base_.address() - 1);
       last_sync_ = dst_;
-	  if (!CHECK_WINAPI_RESULT(base_.msync((char*)base_.address() + p1, p2 - p1 + page_size_) != 0, "msync")) {
+	  if (!base_.msync((char*)base_.address() + p1, p2 - p1 + page_size_)) {
         s = IOErrorWinApi(filename_);
       }
     }
@@ -402,24 +397,21 @@ class WinEnv : public Env {
                                      RandomAccessFile** result) {
     *result = NULL;
     Status s;
-    HANDLE fd = CHECK_WINAPI_RESULT(
-		CreateFile(fname.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL), "CreateFile");
-    if (fd == NULL) {
+    winapi::File fd;
+    if (!fd.createFile(fname.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL)) {
       s = IOErrorWinApi(fname);
     } else if (mmap_limit_.Acquire()) {
       uint64_t size;
       s = GetFileSize(fname, &size);
       if (s.ok()) {
-		MMap base;
-        base.mmap(size, false, fd, 0);
-		if (base.valid()) {
+		MMap base(fd);
+		if (base.mmap(size, false, 0)) {
           *result = new WinMmapReadableFile(fname, base, size, &mmap_limit_);
         } else {
           s = IOError(fname, errno);
         }
       }
-      CHECK_WINAPI_RESULT(!fd || CloseHandle(fd) != 0, "CloseHandle");
       if (!s.ok()) {
         mmap_limit_.Release();
       }
@@ -432,10 +424,9 @@ class WinEnv : public Env {
   virtual Status NewWritableFile(const std::string& fname,
                                  WritableFile** result) {
     Status s;
-    HANDLE fd = CHECK_WINAPI_RESULT(
-		CreateFile(fname.c_str(),
-		GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL), "CreateFile");
-    if (fd == NULL) {
+    winapi::File fd;
+    if (!fd.createFile(fname.c_str(),
+		GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL)) {
       *result = NULL;
       s = IOErrorWinApi(fname);
     } else {
@@ -601,7 +592,7 @@ class WinEnv : public Env {
  private:
   void WinThreadCall(const char* label, bool bOk) {
     if (!bOk) {
-      fprintf(stderr, "windows thread %s: %s\n", label, GetLastWinApiErrorStr().c_str());
+      fprintf(stderr, "windows thread %s: %s\n", label, winapi::GetLastErrorStr().c_str());
       exit(1);
     }
   }

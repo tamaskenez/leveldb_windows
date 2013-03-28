@@ -46,6 +46,7 @@ elseif(MSVC)
 		util/env_win_detail/win_mmap.cc
 		util/env_win_detail/win_thread.cc
 		util/env_win_detail/win_time.cc
+		util/env_win_detail/winapi.cc
 		)
 else()
 	message(FATAL_ERROR Unknown platform)

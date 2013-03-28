@@ -2,7 +2,7 @@
 
 namespace winapi {
 
-const bool bLogErrors = true;
+const bool bLogErrors = false;
 
 bool CHECK_RESULT(bool b, const char* function)
 {

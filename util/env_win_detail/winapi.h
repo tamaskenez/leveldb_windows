@@ -8,6 +8,17 @@
 
 #include <windows.h>
 
+namespace winapi {
+	namespace detail {
+		//this is needed because DeleteFile is a macro which will be undefd to prevent collisions
+		inline BOOL Call_DeleteFile(
+		  _In_  LPCTSTR lpFileName)
+		{
+			return DeleteFile(lpFileName);
+		}
+	}
+}
+
 #undef min
 #undef max
 #undef DeleteFile
@@ -20,8 +31,18 @@ namespace winapi
 	
 	std::string GetLastErrorStr();
 
+	inline bool DeleteFile( _In_  LPCTSTR lpFileName)
+	{
+		return CHECK_RESULT(detail::Call_DeleteFile(lpFileName) != 0, "DeleteFile");
+	}
+
+//#define LOG_FILE_OPEN_CLOSE
+
 	class File
 	{
+#ifdef LOG_FILE_OPEN_CLOSE
+		std::string fname;
+#endif
 	public:
 		File()
 		: h(INVALID_HANDLE_VALUE)
@@ -37,6 +58,10 @@ namespace winapi
 			closeHandle();
 			h = y.h;
 			y.h = INVALID_HANDLE_VALUE;
+#ifdef LOG_FILE_OPEN_CLOSE
+			fname = y.fname;
+			y.fname.clear();
+#endif
 		}
 		
 		bool createFile(
@@ -51,6 +76,10 @@ namespace winapi
 			assert(!valid());
 			closeHandle();
 			h = CHECK_RESULT_IHV(CreateFile(lpFileName, dwDesiredAccess, dwShareMode, lpSecurityAttributes, dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile), "CreateFile");
+#ifdef LOG_FILE_OPEN_CLOSE
+			fname = lpFileName;
+			printf("CreateFile: %s %x\n", fname.c_str(), h);
+#endif
 			return h != INVALID_HANDLE_VALUE;
 		}
 		
@@ -60,6 +89,9 @@ namespace winapi
 			if ( valid() )
 			{
 				b = CHECK_RESULT(CloseHandle(h) != 0, "CloseHandle");
+#ifdef LOG_FILE_OPEN_CLOSE
+			printf("CloseHandle: %s %d\n", fname.c_str(), b);
+#endif
 				h = INVALID_HANDLE_VALUE;
 			}
 			return b;
@@ -92,6 +124,7 @@ namespace winapi
 		{
 			return h != INVALID_HANDLE_VALUE;
 		}
+
 		bool readFile(
 		  _Out_        LPVOID lpBuffer,
 		  _In_         DWORD nNumberOfBytesToRead,
@@ -102,6 +135,7 @@ namespace winapi
 			assert(valid());
 			return CHECK_RESULT(::ReadFile(h, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped) != 0, "ReadFile");
 		}
+
 		bool flushFileBuffers() const
 		{
 			return CHECK_RESULT(FlushFileBuffers(h) != 0, "FlushFileBuffers");

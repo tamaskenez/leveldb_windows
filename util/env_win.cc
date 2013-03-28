@@ -398,7 +398,7 @@ class WinEnv : public Env {
     *result = NULL;
     Status s;
     winapi::File fd;
-    if (!fd.createFile(fname.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+	if (!fd.createFile(fname.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
 		FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL)) {
       s = IOErrorWinApi(fname);
     } else if (mmap_limit_.Acquire()) {
@@ -426,7 +426,7 @@ class WinEnv : public Env {
     Status s;
     winapi::File fd;
     if (!fd.createFile(fname.c_str(),
-		GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL)) {
+		GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, NULL)) {
       *result = NULL;
       s = IOErrorWinApi(fname);
     } else {
@@ -452,7 +452,8 @@ class WinEnv : public Env {
       return errno == ENOENT ? Status::OK() : IOError(dir, errno);
     }
 	do {
-		result->push_back(entry.name);
+		if ( strcmp(entry.name, ".") != 0 && strcmp(entry.name, "..") != 0 )
+			result->push_back(entry.name);
 	} while(_findnext(d, &entry) == 0);
 
 	_findclose(d);
@@ -462,8 +463,13 @@ class WinEnv : public Env {
 
   virtual Status DeleteFile(const std::string& fname) {
     Status result;
+#if 0
     if (unlink(fname.c_str()) != 0) {
       result = IOError(fname, errno);
+#else
+    if (!winapi::DeleteFile(fname.c_str())) {
+	  result = IOErrorWinApi(fname);
+#endif
     }
     return result;
   };

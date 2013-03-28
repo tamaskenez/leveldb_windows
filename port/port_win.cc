@@ -35,6 +35,8 @@ void Mutex::
 	Unlock()
 {
 #ifndef NDEBUG
+	if ( holding_thread_id_ != 0 )
+		AssertHeld();
 	holding_thread_id_ = 0;
 #endif
 	LeaveCriticalSection(_Inout_ (LPCRITICAL_SECTION)cs_);
@@ -67,9 +69,13 @@ CondVar::
 void CondVar::
 	Wait()
 {
+	mu_->AssertHeld();
 	BOOL b = SleepConditionVariableCS((PCONDITION_VARIABLE)cv_, (PCRITICAL_SECTION)(mu_->cs_), INFINITE);
 	if ( !b )
 		fprintf(stderr, "CondVar::Wait, SleepConditionVariableCS returned failure");
+#ifndef NDEBUG
+	mu_->holding_thread_id_ = GetCurrentThreadId();
+#endif
 }
 
 void CondVar::

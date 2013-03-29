@@ -136,6 +136,17 @@ namespace winapi
 			return CHECK_RESULT(::ReadFile(h, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped) != 0, "ReadFile");
 		}
 
+		bool writeFile(
+		  _In_         LPCVOID lpBuffer,
+		  _In_         DWORD nNumberOfBytesToWrite,
+		  _Out_opt_    LPDWORD lpNumberOfBytesWritten,
+		  _Inout_opt_  LPOVERLAPPED lpOverlapped
+		) const
+		{
+			assert(valid());
+			return CHECK_RESULT(::WriteFile(h, lpBuffer, nNumberOfBytesToWrite, lpNumberOfBytesWritten, lpOverlapped) != 0, "WriteFile");
+		}
+
 		bool flushFileBuffers() const
 		{
 			return CHECK_RESULT(FlushFileBuffers(h) != 0, "FlushFileBuffers");

@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 2.8)
 project(leveldb)
 
+enable_testing()
+
 #find_package(Snappy)
 include_directories(${SNAPPY_INCLUDE_DIRS})
 
@@ -97,12 +99,18 @@ set(TESTS
 	db/write_batch_test
 )
 
+FILE(GLOB LEVELDB_PUBLIC_HEADERS include/leveldb/*.h)
+
+set_target_properties(leveldb PROPERTIES DEBUG_POSTFIX _d)
+set_target_properties(leveldb PROPERTIES PUBLIC_HEADER "${LEVELDB_PUBLIC_HEADERS}")
+
 if(NOT MSVC)
 	list(APPEND TESTS db/c_test)
 endif()
 
 foreach(t ${TESTS})
 	get_filename_component(n ${t} NAME)
+	list(APPEND TEST_TARGETS ${n})
 	if (n STREQUAL memenv_test)
 		add_executable(${n}
 			${t}
@@ -113,4 +121,15 @@ foreach(t ${TESTS})
 			${t})
 		target_link_libraries(${n} testharness_lib leveldb)
 	endif()
+	add_test(${n} ${n})
 endforeach()
+
+install(TARGETS leveldb
+	ARCHIVE DESTINATION leveldb/lib CONFIGURATIONS Debug
+	ARCHIVE DESTINATION leveldb/lib CONFIGURATIONS Release
+	PUBLIC_HEADER DESTINATION leveldb/include/leveldb
+	)
+install(TARGETS ${TEST_TARGETS} CONFIGURATIONS Release DESTINATION leveldb/bin/)
+
+install(FILES leveldbConfig.cmake DESTINATION leveldb)
+

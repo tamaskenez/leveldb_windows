@@ -1,21 +1,25 @@
 cmake_minimum_required(VERSION 2.8)
 project(leveldb)
 
+set(INSTALL_TESTS 0)
 enable_testing()
-
-#find_package(Snappy)
-include_directories(${SNAPPY_INCLUDE_DIRS})
-
-if(CMAKE_COMPILER_IS_GNUCXX)
-	set(MEMCMP_FLAG "-fno-builtin-memcmp")
-endif()
 
 # C4244 conversion, possible loss of data
 # C4267 size_t conversion, possible loss of data
 # C4996 deprecated function
 # C4355 this' : used in base member initializer list
 if (MSVC)
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4267 /wd4996 /wd4355 /wd4244")
+	add_definitions(/wd4267 /wd4996 /wd4355 /wd4244)
+endif()
+
+find_package(snappy QUIET)
+include_directories(${SNAPPY_INCLUDE_DIRS})
+if(SNAPPY_FOUND)
+	add_definitions(-DSNAPPY)
+endif()
+
+if(CMAKE_COMPILER_IS_GNUCXX)
+	set(MEMCMP_FLAG "-fno-builtin-memcmp")
 endif()
 
 #set default (POSIX) files
@@ -25,18 +29,19 @@ set(PORT_FILE port/port_posix.cc)
 if(APPLE)
 	if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
         set(PLATFORM OS_MACOSX)
-        set(COMMON_FLAGS ${MEMCMP_FLAG} -DOS_MACOSX)
+        add_definitions(${MEMCMP_FLAG} -DOS_MACOSX)
 	else()
 		message(FATAL_ERROR Unknown platform)
 	endif()
 elseif(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 	set(PLATFORM OS_LINUX)
-	set(COMMON_FLAGS ${MEMCMP_FLAG} -pthread -DOS_LINUX)
+	add_definitions(${MEMCMP_FLAG} -pthread -DOS_LINUX)
+	message(FATAL_ERROR PLATFORM_LDFLAGS must be given to linker, fix this)
 	set(PLATFORM_LDFLAGS -pthread)
 elseif(ANDROID)
 message(FATAQL_ERROR)
 	set(PLATFORM OS_ANDROID)
-	set(COMMON_FLAGS ${MEMCMP_FLAG} -D_REENTRANT -DOS_ANDROID -DLEVELDB_PLATFORM_POSIX)
+	add_definitions(${MEMCMP_FLAG} -D_REENTRANT -DOS_ANDROID -DLEVELDB_PLATFORM_POSIX)
 	set(CROSS_COMPILE 1)
 elseif(MSVC)
 	set(PLATFORM OS_WIN)
@@ -59,19 +64,13 @@ db/builder.cc db/c.cc db/db_impl.cc db/db_iter.cc db/dbformat.cc db/filename.cc
 db/log_reader.cc db/log_writer.cc db/memtable.cc db/repair.cc db/table_cache.cc
 db/version_edit.cc db/version_set.cc db/write_batch.cc table/block.cc table/block_builder.cc table/filter_block.cc table/format.cc table/iterator.cc table/merger.cc table/table.cc table/table_builder.cc table/two_level_iterator.cc util/arena.cc util/bloom.cc util/cache.cc util/coding.cc util/comparator.cc util/crc32c.cc util/env.cc ${ENV_FILE} util/filter_policy.cc util/hash.cc util/histogram.cc util/logging.cc util/options.cc util/status.cc)
 
-if(SNAPPY_FOUND)
-	set(COMMON_FLAGS ${COMMON_FLAGS} -DSNAPPY)
-endif()
-
-set(CMAKE_C_FLAGS ${CMAKE_C_FLAGS} ${PLATFORM_CCFLAGS} ${COMMON_FLAGS})
-set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} ${PLATFORM_CXXFLAGS} ${COMMON_FLAGS})
-
 include_directories(. include)
 
 set(SOURCES ${PORTABLE_FILES} ${PORT_FILE})
 set(MEMENV_SOURCES helpers/memenv/memenv.cc)
 
 add_library(leveldb ${SOURCES})
+target_link_libraries(leveldb ${SNAPPY_LIBRARIES})
 
 add_library(testutil_lib util/testutil.cc)
 
@@ -124,12 +123,26 @@ foreach(t ${TESTS})
 	add_test(${n} ${n})
 endforeach()
 
-install(TARGETS leveldb
-	ARCHIVE DESTINATION leveldb/lib CONFIGURATIONS Debug
-	ARCHIVE DESTINATION leveldb/lib CONFIGURATIONS Release
-	PUBLIC_HEADER DESTINATION leveldb/include/leveldb
-	)
-install(TARGETS ${TEST_TARGETS} CONFIGURATIONS Release DESTINATION leveldb/bin/)
+file(STRINGS include/leveldb/db.h v1 REGEX "kMajorVersion *= *")
+file(STRINGS include/leveldb/db.h v2 REGEX "kMinorVersion *= *")
+string(REGEX MATCH "[0-9]+" MAJOR_VERSION ${v1})
+string(REGEX MATCH "[0-9]+" MINOR_VERSION ${v2})
+if(MAJOR_VERSION STREQUAL "" OR MINOR_VERSION STREQUAL "")
+	message(FATAL_ERROR "Version number parsing failed, please check db.h and parsing code here")
+endif()
 
-install(FILES leveldbConfig.cmake DESTINATION leveldb)
+set(SUBDIR leveldb-${MAJOR_VERSION}.${MINOR_VERSION})
+
+install(TARGETS leveldb
+	ARCHIVE DESTINATION ${SUBDIR}/lib CONFIGURATIONS Debug
+	ARCHIVE DESTINATION ${SUBDIR}/lib CONFIGURATIONS Release
+	PUBLIC_HEADER DESTINATION ${SUBDIR}/include/leveldb
+	)
+	
+if(INSTALL_TESTS)
+	install(TARGETS ${TEST_TARGETS} CONFIGURATIONS Release DESTINATION ${SUBDIR}/bin/)
+endif()
+
+configure_file(leveldbConfig.cmake.in leveldbConfig.cmake.out @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/leveldbConfig.cmake.out DESTINATION ${SUBDIR} RENAME leveldbConfig.cmake)
 

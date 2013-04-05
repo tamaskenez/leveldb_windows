@@ -14,6 +14,10 @@
 #include <string>
 #include <stdint.h>
 
+#ifdef SNAPPY
+#include <snappy.h>
+#endif
+
 #define snprintf _snprintf
 
 namespace leveldb {
@@ -152,10 +156,18 @@ class AtomicPointer {
 
 // Store the snappy compression of "input[0,input_length-1]" in *output.
 // Returns false if snappy is not supported by this port.
-inline bool Snappy_Compress(const char* input, size_t input_length,
+inline bool Snappy_Compress(const char* input, size_t length,
                             std::string* output)
 {
-	return false;
+#ifdef SNAPPY
+  output->resize(snappy::MaxCompressedLength(length));
+  size_t outlen;
+  snappy::RawCompress(input, length, &(*output)[0], &outlen);
+  output->resize(outlen);
+  return true;
+#else
+  return false;
+#endif
 }
 
 // If input[0,input_length-1] looks like a valid snappy compressed
@@ -164,7 +176,11 @@ inline bool Snappy_Compress(const char* input, size_t input_length,
 inline bool Snappy_GetUncompressedLength(const char* input, size_t length,
                                          size_t* result)
 {
-	return false;
+#ifdef SNAPPY
+  return snappy::GetUncompressedLength(input, length, result);
+#else
+  return false;
+#endif
 }
 
 // Attempt to snappy uncompress input[0,input_length-1] into *output.
@@ -174,10 +190,14 @@ inline bool Snappy_GetUncompressedLength(const char* input, size_t length,
 // REQUIRES: at least the first "n" bytes of output[] must be writable
 // where "n" is the result of a successful call to
 // Snappy_GetUncompressedLength.
-inline bool Snappy_Uncompress(const char* input_data, size_t input_length,
+inline bool Snappy_Uncompress(const char* input, size_t length,
                               char* output)
 {
-	return false;
+#ifdef SNAPPY
+  return snappy::RawUncompress(input, length, output);
+#else
+  return false;
+#endif
 }
 
 #if 0

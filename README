@@ -1,3 +1,19 @@
+This repo adds a native windows port to the Google LevelDB library
+(https://code.google.com/p/leveldb/source/checkout)
+
+That repo already contains a windows port (branch 'windows').
+This port has the following advantages over that port:
+
+- Native windows port, no Boost dependency
+- Uses memory-mapped files just like the original Posix version
+- Full CMake build process (build, install, test)
+- All tests passed
+- Nicely rebased onto master
+
+The CMake build is tested only on Windows.
+
+---- Here follows the original README: ----
+
 leveldb: A key-value store
 Authors: Sanjay Ghemawat (sanjay@google.com) and Jeff Dean (jeff@google.com)
 

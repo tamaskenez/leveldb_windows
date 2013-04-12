@@ -139,7 +139,15 @@ class CorruptionTest {
     }
     ASSERT_TRUE(!fname.empty()) << filetype;
 
-    struct stat sbuf;
+#ifdef _WIN32
+	//On windows: stat returns size = 0 for a file not closed properly
+	//This dummy open-close triggers updating file size so
+	//stat will return actual size not zero.
+	FILE* fdummy = fopen(fname.c_str(), "rb");
+	fclose(fdummy);
+#endif
+
+	struct stat sbuf;
     if (stat(fname.c_str(), &sbuf) != 0) {
       const char* msg = strerror(errno);
       ASSERT_TRUE(false) << fname << ": " << msg;

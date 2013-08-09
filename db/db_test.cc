@@ -19,6 +19,11 @@
 
 namespace leveldb {
 
+//backdoor in env_win.cpp to be able to test deleted file in MissingSSTFile: windows won't enable deleting a memory-mapped file
+#ifdef _MSC_VER
+	extern bool ENV_WIN_ENABLE_MEMORY_MAPPED_FILES;
+#endif
+
 static std::string RandomString(Random* rnd, int len) {
   std::string r;
   test::RandomString(rnd, len, &r);
@@ -1615,6 +1620,13 @@ TEST(DBTest, ManifestWriteError) {
 }
 
 TEST(DBTest, MissingSSTFile) {
+//windows won't allow deleting opened files when memory-mapped
+#ifdef _MSC_VER
+  Close();
+  bool prev_enabled = leveldb::ENV_WIN_ENABLE_MEMORY_MAPPED_FILES;
+  leveldb::ENV_WIN_ENABLE_MEMORY_MAPPED_FILES = false;
+  Reopen();
+#endif
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_EQ("bar", Get("foo"));
 
@@ -1626,6 +1638,9 @@ TEST(DBTest, MissingSSTFile) {
   ASSERT_TRUE(DeleteAnSSTFile());
   Options options = CurrentOptions();
   options.paranoid_checks = true;
+#ifdef _MSC_VER
+  leveldb::ENV_WIN_ENABLE_MEMORY_MAPPED_FILES = prev_enabled;
+#endif
   Status s = TryReopen(&options);
   ASSERT_TRUE(!s.ok());
   ASSERT_TRUE(s.ToString().find("issing") != std::string::npos)

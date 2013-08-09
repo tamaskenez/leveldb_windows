@@ -22,6 +22,11 @@
 
 namespace leveldb {
 
+//backdoor in env_win.cpp to be able to test corruption: windows won't enable corrupting when memory-mapping is enabled
+#ifdef _MSC_VER
+	extern bool ENV_WIN_ENABLE_MEMORY_MAPPED_FILES;
+#endif
+
 static const int kValueSize = 1000;
 
 class CorruptionTest {
@@ -33,6 +38,7 @@ class CorruptionTest {
   DB* db_;
 
   CorruptionTest() {
+	leveldb::ENV_WIN_ENABLE_MEMORY_MAPPED_FILES = false; //windows won't enable corrupting when memory-mapping is enable
     tiny_cache_ = NewLRUCache(100);
     options_.env = &env_;
     dbname_ = test::TmpDir() + "/db_test";
@@ -133,7 +139,15 @@ class CorruptionTest {
     }
     ASSERT_TRUE(!fname.empty()) << filetype;
 
-    struct stat sbuf;
+#ifdef _WIN32
+	//On windows: stat returns size = 0 for a file not closed properly
+	//This dummy open-close triggers updating file size so
+	//stat will return actual size not zero.
+	FILE* fdummy = fopen(fname.c_str(), "rb");
+	fclose(fdummy);
+#endif
+
+	struct stat sbuf;
     if (stat(fname.c_str(), &sbuf) != 0) {
       const char* msg = strerror(errno);
       ASSERT_TRUE(false) << fname << ": " << msg;

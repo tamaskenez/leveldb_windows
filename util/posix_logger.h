@@ -10,7 +10,9 @@
 
 #include <algorithm>
 #include <stdio.h>
+#ifndef _MSC_VER
 #include <sys/time.h>
+#endif
 #include <time.h>
 #include "leveldb/env.h"
 
@@ -63,7 +65,11 @@ class PosixLogger : public Logger {
       // Print the message
       if (p < limit) {
         va_list backup_ap;
+#if !defined _MSC_VER || defined va_copy //in C++11 va_copy is a macro
         va_copy(backup_ap, ap);
+#else
+        backup_ap = ap; //fallback for older MSVC without C++11
+#endif
         p += vsnprintf(p, limit - p, format, backup_ap);
         va_end(backup_ap);
       }

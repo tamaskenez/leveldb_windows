@@ -9,6 +9,10 @@ db
   probably not that important.
 - There have been requests for MultiGet.
 
+port
+- windows port should use atomic_pointer.h
+- snappy is platform independent, factorize out
+
 After a range is completely deleted, what gets rid of the
 corresponding files if we do no future changes to that range.  Make
 the conditions for triggering compactions fire in more situations?

@@ -6,6 +6,9 @@
 #include <iostream>
 #include <sstream>
 #include <cstdlib>
+#ifdef _MSC_VER
+#define snprintf _snprintf
+#endif
 
 #include "leveldb/db.h"
 #include "leveldb/write_batch.h"

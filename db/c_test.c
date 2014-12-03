@@ -9,7 +9,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#ifndef _MSC_VER
 #include <unistd.h>
+#else
+#define NOMINMAX
+#include <Windows.h>
+#define snprintf _snprintf
+#endif
 
 const char* phase = "";
 static char dbname[200];
@@ -168,11 +174,23 @@ int main(int argc, char** argv) {
   CheckCondition(leveldb_major_version() >= 1);
   CheckCondition(leveldb_minor_version() >= 1);
 
+#ifndef _MSC_VER
   snprintf(dbname, sizeof(dbname),
            "%s/leveldb_c_test-%d",
            GetTempDir(),
            ((int) geteuid()));
-
+#else
+  {
+#define USER_NAME_BUF_SIZE 100
+    char username[USER_NAME_BUF_SIZE];
+    DWORD buflen = USER_NAME_BUF_SIZE;
+    GetUserName(username, &buflen);
+    _snprintf(dbname, sizeof(dbname),
+        "%s/leveldb_c_test-%s",
+        GetTempDir(),
+        username);
+  }
+#endif
   StartPhase("create_objects");
   cmp = leveldb_comparator_create(NULL, CmpDestroy, CmpCompare, CmpName);
   env = leveldb_create_default_env();

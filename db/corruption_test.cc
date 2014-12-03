@@ -22,6 +22,11 @@
 
 namespace leveldb {
 
+//backdoor to env_win.cpp to be able to test corruption: windows won't enable corrupting when memory-mapping is enabled
+#ifdef _MSC_VER
+	extern bool g_env_win_enable_memory_mapped_files;
+#endif
+
 static const int kValueSize = 1000;
 
 class CorruptionTest {
@@ -33,6 +38,9 @@ class CorruptionTest {
   DB* db_;
 
   CorruptionTest() {
+#ifdef _MSC_VER
+    leveldb::g_env_win_enable_memory_mapped_files = false; //windows won't enable corrupting when memory-mapping is enable
+#endif
     tiny_cache_ = NewLRUCache(100);
     options_.env = &env_;
     options_.block_cache = tiny_cache_;
